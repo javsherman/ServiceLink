@@ -26,7 +26,7 @@ Make sure you have the following installed before running the project:
 - [MySQL](https://www.mysql.com/) (v8 or higher)
 - [Git](https://git-scm.com/)
 ---
-
+```
 ServiceLink/
 ├── client/            ← React Native mobile app
 │   ├── components/
