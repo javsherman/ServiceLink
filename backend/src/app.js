@@ -1,21 +1,40 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+
+//Profile import
 const profileRoutes = require('./routes/profile');
 
-// Add with your other imports at the top
+//Listing import
+const listingRoutes = require('./routes/listings');
+
+//Message import
+const messageRoutes = require('./routes/messages');
+
+//Review import
+const reviewRoutes = require('./routes/reviews');
+
+// Booking route
 const bookingRoutes = require('./routes/bookings');
+
+// Notification route
+const notificationRoutes = require('./routes/notifications');
+
+// Admin route
+const adminRoutes = require('./routes/admin');
 
 dotenv.config();
 
+// Database connection
 const db = require('./config/db');
 
-// Import routes
+// Test DB connection
 const authRoutes = require('./routes/auth');
 
 // Import middleware
 const authMiddleware = require('./middleware/auth');
 const rbac = require('./middleware/rbac');
+
 
 const app = express();
 
@@ -23,10 +42,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
+
 // Routes
 app.use('/api/auth', authRoutes);
+
+// Profile routes
 app.use('/api/profile', profileRoutes);
+
+// Booking routes
 app.use('/api/bookings', bookingRoutes);
+
+// Listing routes
+app.use('/api/listings', listingRoutes);
+
+// Review routes
+app.use('/api/reviews', reviewRoutes);
+
+// Message routes
+app.use('/api/messages', messageRoutes);
+
+// Notification routes
+app.use('/api/notifications', notificationRoutes);
+
+// Admin routes
+app.use('/api/admin', adminRoutes);
 
 // Test protected routes
 app.get('/api/test/customer', authMiddleware, rbac('customer', 'admin'), (req, res) => {
