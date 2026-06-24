@@ -35,6 +35,9 @@ const authRoutes = require('./routes/auth');
 const authMiddleware = require('./middleware/auth');
 const rbac = require('./middleware/rbac');
 
+// Availability routes
+const availabilityRoutes = require('./routes/availability');
+
 
 const app = express();
 
@@ -67,6 +70,11 @@ app.use('/api/notifications', notificationRoutes);
 
 // Admin routes
 app.use('/api/admin', adminRoutes);
+
+// Availability routes
+app.use('/api/availability', availabilityRoutes);
+
+
 
 // Test protected routes
 app.get('/api/test/customer', authMiddleware, rbac('customer', 'admin'), (req, res) => {

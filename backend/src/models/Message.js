@@ -28,28 +28,31 @@ const Message = {
     );
     return result.rows;
   },
-
+  
   // Get all conversations for a user
   async getConversations(userId) {
     const result = await pool.query(
-      `SELECT DISTINCT ON (other_user_id)
-       m.*,
-       u.name AS other_user_name,
-       u.email AS other_user_email,
-       (SELECT COUNT(*) FROM messages 
-        WHERE receiver_id = $1 
-        AND sender_id = other_user_id 
-        AND is_read = false) AS unread_count
+      `SELECT
+         CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END AS other_user_id,
+         u.name AS other_user_name,
+         u.email AS other_user_email,
+         m.content,
+         m.created_at,
+         (SELECT COUNT(*) FROM messages msg
+          WHERE msg.receiver_id = $1
+          AND msg.sender_id = (CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END)
+          AND msg.is_read = false) AS unread_count
        FROM messages m
-       JOIN users u ON u.id = other_user_id
-       CROSS JOIN LATERAL (
-         SELECT CASE 
-           WHEN m.sender_id = $1 THEN m.receiver_id 
-           ELSE m.sender_id 
-         END AS other_user_id
-       ) AS t
-       WHERE m.sender_id = $1 OR m.receiver_id = $1
-       ORDER BY other_user_id, m.created_at DESC`,
+       JOIN users u
+         ON u.id = (CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END)
+       WHERE (m.sender_id = $1 OR m.receiver_id = $1)
+       AND m.created_at = (
+         SELECT MAX(m2.created_at)
+         FROM messages m2
+         WHERE (m2.sender_id = m.sender_id AND m2.receiver_id = m.receiver_id)
+            OR (m2.sender_id = m.receiver_id AND m2.receiver_id = m.sender_id)
+       )
+       ORDER BY m.created_at DESC`,
       [userId]
     );
     return result.rows;

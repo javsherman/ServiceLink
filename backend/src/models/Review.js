@@ -45,7 +45,39 @@ const Review = {
       [providerId]
     );
     return result.rows[0];
-  }
+  },
+  
+  // Get a single review by id
+  async findById(reviewId) {
+    const result = await pool.query(
+      `SELECT * FROM reviews WHERE id = $1`,
+      [reviewId]
+    );
+    return result.rows[0];
+  },
+
+  // Update a review (owner only — enforced via customer_id in WHERE)
+  async update(reviewId, customerId, rating, comment) {
+    const result = await pool.query(
+      `UPDATE reviews
+       SET rating = $1, comment = $2
+       WHERE id = $3 AND customer_id = $4
+       RETURNING *`,
+      [rating, comment, reviewId, customerId]
+    );
+    return result.rows[0];
+  },
+
+  // Delete a review (owner only)
+  async delete(reviewId, customerId) {
+    const result = await pool.query(
+      `DELETE FROM reviews
+       WHERE id = $1 AND customer_id = $2
+       RETURNING *`,
+      [reviewId, customerId]
+    );
+    return result.rows[0];
+  },
 };
 
 module.exports = Review;

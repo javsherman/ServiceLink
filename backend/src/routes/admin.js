@@ -11,5 +11,8 @@ router.get('/bookings', authMiddleware, rbac('admin'), adminController.getAllBoo
 router.get('/listings', authMiddleware, rbac('admin'), adminController.getAllListings);
 router.delete('/listings/:id', authMiddleware, rbac('admin'), adminController.deleteListing);
 router.get('/analytics', authMiddleware, rbac('admin'), adminController.getAnalytics);
+router.get('/listings/pending', authMiddleware, rbac('admin'), adminController.getPendingListings);
+router.put('/listings/:id/approve', authMiddleware, rbac('admin'), adminController.approveListing);
+router.put('/listings/:id/decline', authMiddleware, rbac('admin'), adminController.declineListing);
 
 module.exports = router;

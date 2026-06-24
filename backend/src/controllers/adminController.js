@@ -149,7 +149,65 @@ const adminController = {
       console.error('Get analytics error:', error);
       res.status(500).json({ message: 'Server error' });
     }
+  },
+  // Get all pending listings
+async getPendingListings(req, res) {
+  try {
+    const Listing = require('../models/Listing');
+    const listings = await Listing.findPending();
+
+    res.json({
+      count: listings.length,
+      listings
+    });
+
+  } catch (error) {
+    console.error('Get pending listings error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
+},
+
+// Approve a listing
+async approveListing(req, res) {
+  try {
+    const Listing = require('../models/Listing');
+    const listing = await Listing.updateApprovalStatus(req.params.id, 'approved');
+
+    if (!listing) {
+      return res.status(404).json({ message: 'Listing not found' });
+    }
+
+    res.json({
+      message: 'Listing approved successfully',
+      listing
+    });
+
+  } catch (error) {
+    console.error('Approve listing error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+},
+
+// Decline a listing
+async declineListing(req, res) {
+  try {
+    const Listing = require('../models/Listing');
+    const listing = await Listing.updateApprovalStatus(req.params.id, 'declined');
+
+    if (!listing) {
+      return res.status(404).json({ message: 'Listing not found' });
+    }
+
+    res.json({
+      message: 'Listing declined',
+      listing
+    });
+
+  } catch (error) {
+    console.error('Decline listing error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+}
 };
 
-module.exports = adminController;
+module.exports = adminController;   

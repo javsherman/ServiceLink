@@ -1,10 +1,13 @@
 const Listing = require('../models/Listing');
 
+const { geocode } = require('../utils/geocode');
+
 const listingController = {
+  // Create a listing (providers only)
   // Create a listing (providers only)
   async createListing(req, res) {
     try {
-      const { title, description, category, price, location } = req.body;
+      const { title, description, category, price, location, latitude, longitude } = req.body;
 
       if (!title || !description || !category || !price || !location) {
         return res.status(400).json({ message: 'All fields are required' });
@@ -16,7 +19,9 @@ const listingController = {
         description,
         category,
         price,
-        location
+        location,
+        latitude,
+        longitude
       );
 
       res.status(201).json({
@@ -31,17 +36,18 @@ const listingController = {
   },
 
   // Search listings (all users)
+  // Search listings (all users)
   async searchListings(req, res) {
     try {
-      const { category, location } = req.query;
+      const { category, location, keyword, lat, lng, boost } = req.query;
+      const applyBoost = boost !== 'false';
 
-      const listings = await Listing.search(category, location);
+      const listings = await Listing.search(category, location, keyword, lat, lng, applyBoost);
 
       res.json({
         count: listings.length,
         listings
       });
-
     } catch (error) {
       console.error('Search listings error:', error);
       res.status(500).json({ message: 'Server error' });
@@ -76,11 +82,34 @@ const listingController = {
       res.status(500).json({ message: 'Server error' });
     }
   },
+  // Geocode an address into coordinates (for manual location entry)
+  async geocodeAddress(req, res) {
+    try {
+      const { address } = req.query;
+
+      if (!address) {
+        return res.status(400).json({ message: 'Address is required' });
+      }
+
+      const coords = await geocode(address);
+
+      if (!coords) {
+        return res.status(404).json({ message: 'Location not found' });
+      }
+
+      res.json(coords);
+
+    } catch (error) {
+      console.error('Geocode error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  },
 
   // Update a listing (providers only)
+ // Update a listing (providers only)
   async updateListing(req, res) {
     try {
-      const { title, description, category, price, location, isAvailable } = req.body;
+      const { title, description, category, price, location, isAvailable, latitude, longitude } = req.body;
 
       // Check listing exists
       const existing = await Listing.findById(req.params.id);
@@ -100,7 +129,9 @@ const listingController = {
         category || existing.category,
         price || existing.price,
         location || existing.location,
-        isAvailable !== undefined ? isAvailable : existing.is_available
+        isAvailable !== undefined ? isAvailable : existing.is_available,
+        latitude !== undefined ? latitude : existing.latitude,
+        longitude !== undefined ? longitude : existing.longitude
       );
 
       res.json({
