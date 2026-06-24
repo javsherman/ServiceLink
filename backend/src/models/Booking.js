@@ -81,6 +81,32 @@ const Booking = {
       [status, id]
     );
     return result.rows[0];
+  },
+  // Update booking status
+  async updateStatus(id, status) {
+    const result = await pool.query(
+      `UPDATE bookings 
+       SET status = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 
+       RETURNING *`,
+      [status, id]
+    );
+    return result.rows[0];
+  },
+
+  // Reschedule a booking — update date/time, reset to pending for re-confirmation
+  async reschedule(id, bookingDate, bookingTime) {
+    const result = await pool.query(
+      `UPDATE bookings 
+       SET booking_date = $1, 
+           booking_time = $2, 
+           status = 'pending', 
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $3 
+       RETURNING *`,
+      [bookingDate, bookingTime, id]
+    );
+    return result.rows[0];
   }
 };
 

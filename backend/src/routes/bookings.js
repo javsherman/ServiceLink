@@ -11,5 +11,8 @@ router.get('/:id', authMiddleware, bookingController.getBookingById);
 router.put('/:id/confirm', authMiddleware, rbac('provider'), bookingController.confirmBooking);
 router.put('/:id/reject', authMiddleware, rbac('provider'), bookingController.rejectBooking);
 router.put('/:id/cancel', authMiddleware, rbac('customer'), bookingController.cancelBooking);
+router.put('/:id/complete', authMiddleware, rbac('provider'), bookingController.completeBooking);
+// Reschedule a booking (customers only)
+router.put('/:id/reschedule', authMiddleware, rbac('customer'), bookingController.rescheduleBooking);
 
 module.exports = router;

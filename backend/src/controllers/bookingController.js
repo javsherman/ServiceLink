@@ -1,5 +1,6 @@
 const Booking = require('../models/Booking');
 const Notification = require('../models/Notification');
+const Availability = require('../models/Availability');
 
 const bookingController = {
   // Create a new booking (customers only)
@@ -11,12 +12,38 @@ const bookingController = {
         return res.status(400).json({ message: 'All fields are required' });
       }
 
-      // Check for conflicts
+      // Check if provider has set any availability
+      const providerAvailability = await Availability.findByProvider(providerId);
+      if (providerAvailability.length === 0) {
+        return res.status(400).json({
+          message: 'This provider has not set their availability yet'
+        });
+      }
+
+      // Check provider availability for that day and time
+      const bookingDayOfWeek = new Date(bookingDate)
+        .toLocaleDateString('en-US', { weekday: 'long' })
+        .toLowerCase();
+
+      const isAvailable = await Availability.checkAvailability(
+        providerId,
+        bookingDayOfWeek,
+        bookingTime
+      );
+
+      if (!isAvailable) {
+        return res.status(400).json({
+          message: `Provider is not available on ${bookingDayOfWeek} at ${bookingTime}. Please choose another time.`
+        });
+      }
+
+      // Check for double booking conflicts
       const conflict = await Booking.checkConflict(providerId, bookingDate, bookingTime);
       if (conflict) {
         return res.status(400).json({ message: 'This time slot is already booked' });
       }
 
+      // Create the booking
       const booking = await Booking.create(
         req.user.id,
         providerId,
@@ -102,7 +129,6 @@ const bookingController = {
 
       const updated = await Booking.updateStatus(req.params.id, 'confirmed');
 
-      // Notify the customer
       await Notification.create(
         booking.customer_id,
         'Booking Confirmed',
@@ -136,7 +162,6 @@ const bookingController = {
 
       const updated = await Booking.updateStatus(req.params.id, 'rejected');
 
-      // Notify the customer
       await Notification.create(
         booking.customer_id,
         'Booking Rejected',
@@ -170,7 +195,6 @@ const bookingController = {
 
       const updated = await Booking.updateStatus(req.params.id, 'cancelled');
 
-      // Notify the provider
       await Notification.create(
         booking.provider_id,
         'Booking Cancelled',
@@ -187,7 +211,101 @@ const bookingController = {
       console.error('Cancel booking error:', error);
       res.status(500).json({ message: 'Server error' });
     }
-  }
+  },
+  // Complete a booking (providers only)
+  async completeBooking(req, res) {
+    try {
+      const booking = await Booking.findById(req.params.id);
+
+      if (!booking) {
+        return res.status(404).json({ message: 'Booking not found' });
+      }
+
+      if (booking.provider_id !== req.user.id) {
+        return res.status(403).json({ message: 'Only the provider can complete this booking' });
+      }
+
+      // Only a confirmed booking can be completed
+      if (booking.status !== 'confirmed') {
+        return res.status(400).json({ message: 'Only confirmed bookings can be marked complete' });
+      }
+
+      const updated = await Booking.updateStatus(req.params.id, 'completed');
+
+      await Notification.create(
+        booking.customer_id,
+        'Service Completed',
+        `Your booking for ${booking.service_description} has been completed. You can now leave a review.`,
+        'booking_confirmed'
+      );
+
+      res.json({
+        message: 'Booking marked as completed',
+        booking: updated
+      });
+
+    } catch (error) {
+      console.error('Complete booking error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  },
+  // Reschedule a booking (PUT /api/bookings/:id/reschedule) — customers only, owner only
+  async rescheduleBooking(req, res) {
+    try {
+      const bookingId = req.params.id;
+      const { booking_date, booking_time } = req.body;
+
+      // Required fields
+      if (!booking_date || !booking_time) {
+        return res.status(400).json({ message: 'New date and time are required' });
+      }
+
+      // Check booking exists
+      const booking = await Booking.findById(bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: 'Booking not found' });
+      }
+
+      // Only the customer who made the booking can reschedule
+      if (booking.customer_id !== req.user.id) {
+        return res.status(403).json({ message: 'You can only reschedule your own booking' });
+      }
+
+      // Cannot reschedule a finished or cancelled booking
+      if (booking.status === 'completed' || booking.status === 'cancelled') {
+        return res.status(400).json({ message: `Cannot reschedule a ${booking.status} booking` });
+      }
+
+      // Prevent double-booking the provider at the new slot
+      const conflict = await Booking.checkConflict(
+        booking.provider_id,
+        booking_date,
+        booking_time
+      );
+      if (conflict) {
+        return res.status(409).json({ message: 'Provider is not available at the selected time' });
+      }
+
+      const updated = await Booking.reschedule(bookingId, booking_date, booking_time);
+
+      // Notify the provider of the reschedule
+      await Notification.create(
+        booking.provider_id,
+        'Booking Rescheduled',
+        `A customer rescheduled their booking to ${booking_date} at ${booking_time}.`,
+        'new_booking'
+      );
+
+      res.json({
+        message: 'Booking rescheduled successfully',
+        booking: updated
+      });
+
+    } catch (error) {
+      console.error('Reschedule booking error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  },
 };
 
 module.exports = bookingController;

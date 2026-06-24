@@ -75,7 +75,71 @@ const reviewController = {
       console.error('Get reviews error:', error);
       res.status(500).json({ message: 'Server error' });
     }
-  }
+  },
+  // Edit a review (PUT /api/reviews/:id) — customers only, owner only
+  async editReview(req, res) {
+    try {
+      const { rating, comment } = req.body;
+      const reviewId = req.params.id;
+
+      // Rating must be 1-5
+      if (!rating) {
+        return res.status(400).json({ message: 'Rating is required' });
+      }
+      if (rating < 1 || rating > 5) {
+        return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+      }
+
+      // Check review exists
+      const existing = await Review.findById(reviewId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Review not found' });
+      }
+
+      // Only the owner can edit
+      if (existing.customer_id !== req.user.id) {
+        return res.status(403).json({ message: 'You can only edit your own review' });
+      }
+
+      const review = await Review.update(reviewId, req.user.id, rating, comment);
+
+      res.json({
+        message: 'Review updated successfully',
+        review
+      });
+
+    } catch (error) {
+      console.error('Edit review error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  },
+
+  // Delete a review (DELETE /api/reviews/:id) — customers only, owner only
+  async deleteReview(req, res) {
+    try {
+      const reviewId = req.params.id;
+
+      // Check review exists
+      const existing = await Review.findById(reviewId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Review not found' });
+      }
+
+      // Only the owner can delete
+      if (existing.customer_id !== req.user.id) {
+        return res.status(403).json({ message: 'You can only delete your own review' });
+      }
+
+      await Review.delete(reviewId, req.user.id);
+
+      res.json({ message: 'Review deleted successfully' });
+
+    } catch (error) {
+      console.error('Delete review error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  },
+  
 };
 
 module.exports = reviewController;

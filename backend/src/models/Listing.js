@@ -2,26 +2,51 @@ const pool = require('../config/db');
 
 const Listing = {
   // Create a new listing
-  async create(providerId, title, description, category, price, location) {
+  async create(providerId, title, description, category, price, location, latitude, longitude) {
     const result = await pool.query(
       `INSERT INTO listings 
-       (provider_id, title, description, category, price, location) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
+       (provider_id, title, description, category, price, location, latitude, longitude) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
        RETURNING *`,
-      [providerId, title, description, category, price, location]
+      [providerId, title, description, category, price, location, latitude, longitude]
     );
     return result.rows[0];
   },
 
-  // Get all listings (with optional search filters)
-  async search(category, location) {
+  // Get all listings (with optional search filters + optional location ranking)
+  // If lat & lng are provided, results include a distance_km column and are
+  // ordered by new-provider boost (providers < 30 days old first) then nearest.
+  // If lat & lng are omitted, behaves exactly as before (newest first).
+  async search(category, location, keyword, lat, lng, applyBoost = true) {
+    const hasCoords =
+      lat !== undefined && lat !== null && lat !== '' &&
+      lng !== undefined && lng !== null && lng !== '';
+
+    const params = [];
+    let distanceSelect = '';
+
+    if (hasCoords) {
+      if (applyBoost) {
+        query += ` ORDER BY new_provider_boost DESC, distance_km ASC`;
+      } else {
+        query += ` ORDER BY distance_km ASC`;
+      }
+    } else {
+      query += ` ORDER BY l.created_at DESC`;
+    }
+
     let query = `
-      SELECT l.*, u.name AS provider_name, u.email AS provider_email
+      SELECT l.*, u.name AS provider_name, u.email AS provider_email${distanceSelect}
       FROM listings l
       JOIN users u ON l.provider_id = u.id
       WHERE l.is_available = true
+      AND l.approval_status = 'approved'
     `;
-    const params = [];
+
+    if (hasCoords) {
+      // Only rank listings that actually have coordinates
+      query += ` AND l.latitude IS NOT NULL AND l.longitude IS NOT NULL`;
+    }
 
     if (category) {
       params.push(`%${category}%`);
@@ -33,7 +58,18 @@ const Listing = {
       query += ` AND LOWER(l.location) LIKE LOWER($${params.length})`;
     }
 
-    query += ` ORDER BY l.created_at DESC`;
+    if (keyword) {
+      params.push(`%${keyword}%`);
+      query += ` AND (LOWER(l.title) LIKE LOWER($${params.length}) 
+                 OR LOWER(l.description) LIKE LOWER($${params.length}))`;
+    }
+
+    if (hasCoords) {
+      // New providers first, then closest
+      query += ` ORDER BY new_provider_boost DESC, distance_km ASC`;
+    } else {
+      query += ` ORDER BY l.created_at DESC`;
+    }
 
     const result = await pool.query(query, params);
     return result.rows;
@@ -61,15 +97,16 @@ const Listing = {
   },
 
   // Update a listing
-  async update(id, title, description, category, price, location, isAvailable) {
+  async update(id, title, description, category, price, location, isAvailable, latitude, longitude) {
     const result = await pool.query(
       `UPDATE listings 
        SET title = $1, description = $2, category = $3, 
            price = $4, location = $5, is_available = $6,
+           latitude = $7, longitude = $8,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7 
+       WHERE id = $9 
        RETURNING *`,
-      [title, description, category, price, location, isAvailable, id]
+      [title, description, category, price, location, isAvailable, latitude, longitude, id]
     );
     return result.rows[0];
   },
@@ -77,7 +114,32 @@ const Listing = {
   // Delete a listing
   async delete(id) {
     await pool.query('DELETE FROM listings WHERE id = $1', [id]);
+  },
+
+  // Get all pending listings (admin only)
+  async findPending() {
+    const result = await pool.query(
+      `SELECT l.*, u.name AS provider_name, u.email AS provider_email
+      FROM listings l
+      JOIN users u ON l.provider_id = u.id
+      WHERE l.approval_status = 'pending'
+      ORDER BY l.created_at DESC`
+    );
+    return result.rows;
+  },
+
+  // Update approval status
+  async updateApprovalStatus(id, status) {
+    const result = await pool.query(
+      `UPDATE listings 
+      SET approval_status = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 
+      RETURNING *`,
+      [status, id]
+    );
+    return result.rows[0];
   }
+
 };
 
 module.exports = Listing;
