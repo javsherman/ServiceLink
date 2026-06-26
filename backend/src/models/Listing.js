@@ -14,9 +14,9 @@ const Listing = {
   },
 
   // Get all listings (with optional search filters + optional location ranking)
-  // If lat & lng are provided, results include a distance_km column and are
-  // ordered by new-provider boost (providers < 30 days old first) then nearest.
-  // If lat & lng are omitted, behaves exactly as before (newest first).
+  // If lat & lng are provided, results include a distance_km column.
+  // applyBoost (default true) puts new providers (<30 days) first; when false,
+  // results are ordered by distance only (used for fairness comparison).
   async search(category, location, keyword, lat, lng, applyBoost = true) {
     const hasCoords =
       lat !== undefined && lat !== null && lat !== '' &&
@@ -26,13 +26,16 @@ const Listing = {
     let distanceSelect = '';
 
     if (hasCoords) {
-      if (applyBoost) {
-        query += ` ORDER BY new_provider_boost DESC, distance_km ASC`;
-      } else {
-        query += ` ORDER BY distance_km ASC`;
-      }
-    } else {
-      query += ` ORDER BY l.created_at DESC`;
+      // $1 = customer latitude, $2 = customer longitude
+      params.push(lat, lng);
+      distanceSelect = `,
+        6371 * acos(
+          cos(radians($1)) * cos(radians(l.latitude)) *
+          cos(radians(l.longitude) - radians($2)) +
+          sin(radians($1)) * sin(radians(l.latitude))
+        ) AS distance_km,
+        CASE WHEN (NOW() - u.created_at) < INTERVAL '30 days'
+             THEN 1 ELSE 0 END AS new_provider_boost`;
     }
 
     let query = `
@@ -65,8 +68,13 @@ const Listing = {
     }
 
     if (hasCoords) {
-      // New providers first, then closest
-      query += ` ORDER BY new_provider_boost DESC, distance_km ASC`;
+      if (applyBoost) {
+        // New providers first, then closest
+        query += ` ORDER BY new_provider_boost DESC, distance_km ASC`;
+      } else {
+        // Distance only (no fairness boost)
+        query += ` ORDER BY distance_km ASC`;
+      }
     } else {
       query += ` ORDER BY l.created_at DESC`;
     }
@@ -143,3 +151,4 @@ const Listing = {
 };
 
 module.exports = Listing;
+

@@ -4,38 +4,8 @@ const { geocode } = require('../utils/geocode');
 
 const listingController = {
   // Create a listing (providers only)
-  // Create a listing (providers only)
-  async createListing(req, res) {
-    try {
-      const { title, description, category, price, location, latitude, longitude } = req.body;
+  
 
-      if (!title || !description || !category || !price || !location) {
-        return res.status(400).json({ message: 'All fields are required' });
-      }
-
-      const listing = await Listing.create(
-        req.user.id,
-        title,
-        description,
-        category,
-        price,
-        location,
-        latitude,
-        longitude
-      );
-
-      res.status(201).json({
-        message: 'Listing created successfully',
-        listing
-      });
-
-    } catch (error) {
-      console.error('Create listing error:', error);
-      res.status(500).json({ message: 'Server error' });
-    }
-  },
-
-  // Search listings (all users)
   // Search listings (all users)
   async searchListings(req, res) {
     try {
@@ -105,8 +75,55 @@ const listingController = {
     }
   },
 
+  // Create a listing (providers only)
+  async createListing(req, res) {
+    try {
+      const { title, description, category, price, location, latitude, longitude } = req.body;
+
+      if (!title || !description || !category || !price || !location) {
+        return res.status(400).json({ message: 'All fields are required' });
+      }
+
+      // If coordinates weren't supplied, geocode the location text into lat/lng
+      // so the listing is searchable by distance.
+      let lat = latitude;
+      let lng = longitude;
+      if ((lat === undefined || lat === null || lat === '') && location) {
+        try {
+          const coords = await geocode(location);
+          if (coords) {
+            lat = coords.lat;
+            lng = coords.lng;
+          }
+        } catch (geoErr) {
+          console.error('Geocode on create failed:', geoErr.message);
+          // Proceed without coordinates rather than blocking listing creation
+        }
+      }
+
+      const listing = await Listing.create(
+        req.user.id,
+        title,
+        description,
+        category,
+        price,
+        location,
+        lat,
+        lng
+      );
+
+      res.status(201).json({
+        message: 'Listing created successfully',
+        listing
+      });
+
+    } catch (error) {
+      console.error('Create listing error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  },
+
   // Update a listing (providers only)
- // Update a listing (providers only)
   async updateListing(req, res) {
     try {
       const { title, description, category, price, location, isAvailable, latitude, longitude } = req.body;
@@ -122,16 +139,39 @@ const listingController = {
         return res.status(403).json({ message: 'You can only update your own listings' });
       }
 
+      // Determine the final location text
+      const newLocation = location || existing.location;
+
+      // Re-geocode if the location text changed and no explicit coords were given
+      let lat = latitude !== undefined ? latitude : existing.latitude;
+      let lng = longitude !== undefined ? longitude : existing.longitude;
+
+      const locationChanged = location && location !== existing.location;
+      const coordsMissing = lat === undefined || lat === null || lat === '';
+
+      if ((locationChanged || coordsMissing) && newLocation && latitude === undefined) {
+        try {
+          const coords = await geocode(newLocation);
+          if (coords) {
+            lat = coords.lat;
+            lng = coords.lng;
+          }
+        } catch (geoErr) {
+          console.error('Geocode on update failed:', geoErr.message);
+          // Keep existing coordinates rather than blocking the update
+        }
+      }
+
       const listing = await Listing.update(
         req.params.id,
         title || existing.title,
         description || existing.description,
         category || existing.category,
         price || existing.price,
-        location || existing.location,
+        newLocation,
         isAvailable !== undefined ? isAvailable : existing.is_available,
-        latitude !== undefined ? latitude : existing.latitude,
-        longitude !== undefined ? longitude : existing.longitude
+        lat,
+        lng
       );
 
       res.json({
