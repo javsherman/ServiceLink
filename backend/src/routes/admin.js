@@ -14,5 +14,6 @@ router.get('/analytics', authMiddleware, rbac('admin'), adminController.getAnaly
 router.get('/listings/pending', authMiddleware, rbac('admin'), adminController.getPendingListings);
 router.put('/listings/:id/approve', authMiddleware, rbac('admin'), adminController.approveListing);
 router.put('/listings/:id/decline', authMiddleware, rbac('admin'), adminController.declineListing);
+router.get('/fairness', authMiddleware, rbac('admin'), adminController.getFairness);
 
 module.exports = router;
