@@ -22,8 +22,26 @@ A cross-platform mobile marketplace connecting customers with local service prov
 - **Backend** — Node.js / Express
 - **Database** — PostgreSQL
 - **Authentication** — JWT (24hr expiry) + bcrypt (10 salt rounds)
-- **Third-party** — Google Maps API, Firebase (Push Notifications), SMTP (Email)
+- **Third-party** — Google Maps Geocoding API
 - **Testing** — Jest, Postman, OWASP ZAP
+
+---
+
+## Key Features
+
+- **Location-based search** — Listings are ranked by real-world distance from the
+  customer using the **Haversine distance formula** (computed in SQL with
+  `6371 * acos(...)`), returning a `distance_km` value for each result.
+- **Google Geocoding** — Address text (e.g. "Spanish Town, Jamaica") is converted
+  into latitude/longitude coordinates via the Google Geocoding API, both when a
+  listing is created/updated and through a dedicated geocode endpoint.
+- **New-provider fairness boost** — Search ranking gives providers who joined
+  within the last 30 days a visibility boost (shown ahead of established
+  providers at equal relevance), helping newcomers gain their first customers.
+- **Fairness analysis (Jain's Index)** — The admin dashboard runs a simulation of
+  many randomized location searches and reports **Jain's Fairness Index** for the
+  ranking both with and without the new-provider boost, quantifying how evenly
+  provider exposure is distributed.
 
 ---
 
@@ -34,7 +52,7 @@ Make sure you have the following installed before running the project:
 - [Node.js](https://nodejs.org/) (v18 or higher)
 - [PostgreSQL](https://www.postgresql.org/) (v13 or higher)
 - [Git](https://git-scm.com/)
-- [Expo CLI](https://docs.expo.dev/get-started/installation/)
+- [React Native development environment](https://reactnative.dev/docs/set-up-your-environment) (Android Studio and/or Xcode)
 - [Postman](https://www.postman.com/) (for API testing)
 
 ---
@@ -50,6 +68,7 @@ ServiceLink/
 │   │   ├── controllers/
 │   │   │   ├── adminController.js
 │   │   │   ├── authController.js
+│   │   │   ├── availabilityController.js
 │   │   │   ├── bookingController.js
 │   │   │   ├── listingController.js
 │   │   │   ├── messageController.js
@@ -60,6 +79,7 @@ ServiceLink/
 │   │   │   ├── auth.js             ← JWT verification
 │   │   │   └── rbac.js             ← Role based access control
 │   │   ├── models/
+│   │   │   ├── Availability.js
 │   │   │   ├── Booking.js
 │   │   │   ├── Listing.js
 │   │   │   ├── Message.js
@@ -70,17 +90,20 @@ ServiceLink/
 │   │   ├── routes/
 │   │   │   ├── admin.js
 │   │   │   ├── auth.js
+│   │   │   ├── availability.js
 │   │   │   ├── bookings.js
 │   │   │   ├── listings.js
 │   │   │   ├── messages.js
 │   │   │   ├── notifications.js
 │   │   │   ├── profile.js
 │   │   │   └── reviews.js
+│   │   ├── utils/
+│   │   │   └── geocode.js          ← Google Geocoding helper
 │   │   └── app.js                  ← Express entry point
 │   ├── .env                        ← Environment variables (not uploaded)
 │   ├── .gitignore
 │   └── package.json
-└── myapp/                          ← React Native mobile app (Expo)
+└── myapp/                          ← React Native mobile app (React Native CLI)
 ```
 
 ---
@@ -105,6 +128,7 @@ Create a file called `.env` inside the `backend` folder:
 PORT=3000
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/servicelink
 JWT_SECRET=your_secret_key_here
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 ```
 
 **4. Set up the database**
@@ -157,9 +181,22 @@ CREATE TABLE listings (
   category VARCHAR(100) NOT NULL,
   price DECIMAL(10,2) NOT NULL,
   location VARCHAR(255) NOT NULL,
+  latitude NUMERIC(9,6),
+  longitude NUMERIC(9,6),
+  approval_status VARCHAR(20) CHECK (approval_status IN ('pending', 'approved', 'declined')) DEFAULT 'pending',
   is_available BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE availability (
+  id SERIAL PRIMARY KEY,
+  provider_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  day_of_week VARCHAR(10) NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  is_available BOOLEAN DEFAULT true,
+  UNIQUE (provider_id, day_of_week)
 );
 
 CREATE TABLE messages (
@@ -225,16 +262,28 @@ Server will start at `http://localhost:3000`
 | PUT | /api/bookings/:id/confirm | Provider | Confirm a booking |
 | PUT | /api/bookings/:id/reject | Provider | Reject a booking |
 | PUT | /api/bookings/:id/cancel | Customer | Cancel a booking |
+| PUT | /api/bookings/:id/complete | Provider | Mark a booking as completed |
+| PUT | /api/bookings/:id/reschedule | Customer | Reschedule a booking |
 
 ### Listings
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| GET | /api/listings | All | Search listings |
+| GET | /api/listings | All | Search listings (supports lat/lng distance ranking) |
 | GET | /api/listings/my | Provider | Get own listings |
+| GET | /api/listings/geocode | All | Convert an address into coordinates |
 | GET | /api/listings/:id | All | Get listing by id |
 | POST | /api/listings | Provider | Create a listing |
 | PUT | /api/listings/:id | Provider | Update a listing |
 | DELETE | /api/listings/:id | Provider | Delete a listing |
+
+### Availability
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| POST | /api/availability | Provider | Set/update availability for a day |
+| GET | /api/availability/my | Provider | Get own availability |
+| PUT | /api/availability/toggle | Provider | Toggle availability for a day |
+| DELETE | /api/availability/:day | Provider | Remove availability for a day |
+| GET | /api/availability/:providerId | All | Get a provider's availability |
 
 ### Messages
 | Method | Endpoint | Access | Description |
@@ -249,6 +298,8 @@ Server will start at `http://localhost:3000`
 |---|---|---|---|
 | POST | /api/reviews | Customer | Submit a review |
 | GET | /api/reviews/provider/:id | All | Get provider reviews |
+| PUT | /api/reviews/:id | Customer | Edit own review |
+| DELETE | /api/reviews/:id | Customer | Delete own review |
 
 ### Notifications
 | Method | Endpoint | Access | Description |
@@ -267,6 +318,10 @@ Server will start at `http://localhost:3000`
 | GET | /api/admin/listings | Admin | Get all listings |
 | DELETE | /api/admin/listings/:id | Admin | Delete a listing |
 | GET | /api/admin/analytics | Admin | Get platform analytics |
+| GET | /api/admin/listings/pending | Admin | Get listings awaiting approval |
+| PUT | /api/admin/listings/:id/approve | Admin | Approve a pending listing |
+| PUT | /api/admin/listings/:id/decline | Admin | Decline a pending listing |
+| GET | /api/admin/fairness | Admin | Run fairness simulation (Jain's Index) |
 
 ---
 
